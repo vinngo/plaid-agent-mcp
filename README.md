@@ -6,10 +6,6 @@ portfolio into [Poke](https://poke.com) via [Plaid](https://plaid.com).
 > **Why this exists.** Poke can't see your Wealthsimple / brokerage portfolio —
 > there's no public API and no built-in Plaid integration:
 >
-> > *"we don't support plaid out of the box right now … but since you're a cracked
-> > dev, you could easily build a custom mcp server that hooks into plaid's api and
-> > upload it."* — Poke
->
 > So here it is. Link any brokerage/retirement account through Plaid once, point
 > Poke at this server, and ask things like *"what's my portfolio worth?"*,
 > *"what are my biggest winners?"*, or *"how much did I get in dividends this month?"*.
