@@ -1,24 +1,26 @@
 {
-  "name": "poke-plaid-mcp",
-  "version": "1.0.0",
-  "description": "MCP server that exposes your Plaid-linked investment portfolio (holdings, balances, dividends) to Poke.",
+  "name": "plaid-agent-mcp",
+  "version": "0.1.0",
+  "description": "Read-only Plaid investments MCP tools for the plaid-agent: CSV snapshots to S3, served locally over MCP or through AgentCore Gateway as a Lambda target. Forked from zayedu/poke-plaid-mcp.",
   "type": "module",
   "license": "MIT",
   "engines": {
     "node": ">=18"
   },
-  "bin": {
-    "poke-plaid-mcp": "dist/index.js"
-  },
   "scripts": {
-    "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json && node -e \"require('fs').cpSync('src/public','dist/public',{recursive:true})\"",
-    "start": "node dist/index.js",
+    "dev": "tsx watch src/adapters/http.ts",
+    "mcp:stdio": "tsx src/adapters/stdio.ts",
+    "build": "tsc -p tsconfig.json",
+    "build:lambda": "esbuild src/adapters/lambda.ts --bundle --platform=node --target=node20 --format=esm --outfile=dist-lambda/index.mjs --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\" --external:@aws-sdk/*",
     "typecheck": "tsc -p tsconfig.typecheck.json",
-    "link:sandbox": "tsx scripts/sandbox-link.ts",
-    "test:mcp": "tsx scripts/test-mcp.ts"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "smoke": "tsx scripts/smoke.ts",
+    "gateway:schema": "tsx scripts/gateway-schema.ts",
+    "link:sandbox": "tsx scripts/sandbox-link.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1151.0",
+    "@aws-sdk/client-secrets-manager": "^3.1151.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
@@ -26,8 +28,10 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@types/aws-lambda": "^8.10.164",
     "@types/express": "^4.17.21",
     "@types/node": "^20.14.0",
+    "esbuild": "^0.28.2",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"
   }

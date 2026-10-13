@@ -70,6 +70,8 @@ export interface HoldingsResult {
   accounts: Account[];
   holdings: Holding[];
   securities: Security[];
+  /** itemId -> when the provider last refreshed investments data (ISO). */
+  itemsAsOf: Record<string, string>;
 }
 
 export interface TransactionsResult {
