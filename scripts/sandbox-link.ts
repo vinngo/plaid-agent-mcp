@@ -7,7 +7,7 @@
  * Requires PLAID_CLIENT_ID / PLAID_SECRET with PLAID_ENV=sandbox in your .env.
  */
 import { config } from "../src/config.js";
-import { createSandboxItem } from "../src/providers/plaid.js";
+import { createSandboxItem } from "../src/plaid/link.js";
 import { extractPlaidError } from "../src/providers/plaid.js";
 
 // First Platypus Bank — the default Plaid sandbox institution (supports investments).
@@ -29,7 +29,7 @@ async function main(): Promise<void> {
   try {
     const item = await createSandboxItem(institutionId);
     console.log(`✓ Linked "${item.institution}" (item ${item.itemId}).`);
-    console.log("  Try it: npm run test:mcp");
+    console.log("  Try it: npm run smoke");
   } catch (err) {
     const info = extractPlaidError(err);
     console.error(`✗ Failed: ${info.message}${info.code ? ` (${info.code})` : ""}`);

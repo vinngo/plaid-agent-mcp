@@ -11,7 +11,7 @@ import {
 } from "plaid";
 import { config } from "../config.js";
 import { log } from "../logger.js";
-import { listItems, upsertItem, type StoredItem } from "../store.js";
+import { getTokenStore, type StoredItem } from "../storage/tokens.js";
 import type {
   Account,
   Holding,
@@ -193,11 +193,11 @@ export class PlaidProvider implements PortfolioProvider {
   readonly kind = "plaid" as const;
 
   async isReady(): Promise<boolean> {
-    return (await listItems()).length > 0;
+    return (await getTokenStore().list()).length > 0;
   }
 
   async listLinkedItems(): Promise<LinkedItemInfo[]> {
-    const items = await listItems();
+    const items = await getTokenStore().list();
     const results: LinkedItemInfo[] = [];
     for (const item of items) {
       let accounts = 0;
@@ -213,7 +213,7 @@ export class PlaidProvider implements PortfolioProvider {
   }
 
   async listAccounts(): Promise<Account[]> {
-    const items = await listItems();
+    const items = await getTokenStore().list();
     const out: Account[] = [];
     for (const item of items) {
       try {
@@ -227,7 +227,7 @@ export class PlaidProvider implements PortfolioProvider {
   }
 
   async getBalances(opts: QueryOptions = {}): Promise<Account[]> {
-    const items = await listItems();
+    const items = await getTokenStore().list();
     const out: Account[] = [];
     for (const item of items) {
       try {
@@ -244,10 +244,11 @@ export class PlaidProvider implements PortfolioProvider {
   }
 
   async getHoldings(opts: QueryOptions = {}): Promise<HoldingsResult> {
-    const items = await listItems();
+    const items = await getTokenStore().list();
     const accounts: Account[] = [];
     const holdings: Holding[] = [];
     const securities = new Map<string, Security>();
+    const itemsAsOf: Record<string, string> = {};
 
     for (const item of items) {
       try {
@@ -257,6 +258,8 @@ export class PlaidProvider implements PortfolioProvider {
         });
         const accountsById = new Map<string, AccountLike>(res.data.accounts.map((a) => [a.account_id, a]));
         const securitiesById = new Map(res.data.securities.map((s) => [s.security_id, s]));
+        const asOf = await this.investmentsAsOf(item);
+        if (asOf) itemsAsOf[item.itemId] = asOf;
         for (const a of res.data.accounts) accounts.push(normalizeAccount(a, item));
         for (const s of res.data.securities) securities.set(s.security_id, normalizeSecurity(s));
         for (const h of res.data.holdings) {
@@ -271,11 +274,23 @@ export class PlaidProvider implements PortfolioProvider {
       accounts: filterByAccount(accounts, opts.accountIds, (a) => a.accountId),
       holdings: filterByAccount(holdings, opts.accountIds, (h) => h.accountId),
       securities: [...securities.values()],
+      itemsAsOf,
     };
   }
 
+  /** When Plaid last successfully refreshed investments data for this Item. */
+  private async investmentsAsOf(item: StoredItem): Promise<string | undefined> {
+    try {
+      const res = await getPlaidClient().itemGet({ access_token: item.accessToken });
+      return res.data.status?.investments?.last_successful_update ?? undefined;
+    } catch (err) {
+      log.warn("Could not read item refresh time", { itemId: item.itemId, code: extractPlaidError(err).code });
+      return undefined;
+    }
+  }
+
   async getInvestmentTransactions(opts: TransactionQueryOptions): Promise<TransactionsResult> {
-    const items = await listItems();
+    const items = await getTokenStore().list();
     const accounts: Account[] = [];
     const securities = new Map<string, Security>();
     const transactions: InvestmentTransaction[] = [];
@@ -351,63 +366,4 @@ function filterByAccount<T>(items: T[], accountIds: string[] | undefined, getId:
   if (!accountIds || accountIds.length === 0) return items;
   const allow = new Set(accountIds);
   return items.filter((i) => allow.has(getId(i)));
-}
-
-// --- link / onboarding helpers ---------------------------------------------
-
-export async function createLinkToken(): Promise<string> {
-  const res = await getPlaidClient().linkTokenCreate({
-    user: { client_user_id: "poke-plaid-mcp-user" },
-    client_name: config.plaid.appName,
-    language: "en",
-    products: toProducts(config.plaid.products),
-    country_codes: toCountryCodes(config.plaid.countryCodes),
-    // Wealthsimple and other OAuth institutions require a registered redirect URI.
-    ...(config.plaid.env === "production" ? { redirect_uri: config.plaid.redirectUri } : {}),
-  });
-  return res.data.link_token;
-}
-
-export async function resolveInstitutionName(institutionId: string | null | undefined): Promise<string> {
-  if (!institutionId) return "Unknown institution";
-  try {
-    const res = await getPlaidClient().institutionsGetById({
-      institution_id: institutionId,
-      country_codes: toCountryCodes(config.plaid.countryCodes),
-    });
-    return res.data.institution.name;
-  } catch {
-    return institutionId;
-  }
-}
-
-export async function exchangePublicToken(publicToken: string, institutionName?: string): Promise<StoredItem> {
-  const exchange = await getPlaidClient().itemPublicTokenExchange({ public_token: publicToken });
-  const accessToken = exchange.data.access_token;
-  const itemId = exchange.data.item_id;
-
-  let institution = institutionName ?? "";
-  if (!institution) {
-    const itemRes = await getPlaidClient().itemGet({ access_token: accessToken });
-    institution = await resolveInstitutionName(itemRes.data.item.institution_id);
-  }
-
-  const stored: StoredItem = {
-    itemId,
-    institution: institution || "Unknown institution",
-    linkedAt: new Date().toISOString(),
-    accessToken,
-  };
-  await upsertItem(stored);
-  return stored;
-}
-
-/** Sandbox-only: create a linkable item without going through Link in a browser. */
-export async function createSandboxItem(institutionId: string): Promise<StoredItem> {
-  const pub = await getPlaidClient().sandboxPublicTokenCreate({
-    institution_id: institutionId,
-    initial_products: toProducts(config.plaid.products),
-  });
-  const institution = await resolveInstitutionName(institutionId);
-  return exchangePublicToken(pub.data.public_token, institution);
 }

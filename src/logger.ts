@@ -1,5 +1,5 @@
 // Minimal structured logger. Writes to stderr so it never interferes with any
-// stdout-based protocol and stays readable in `poke tunnel` / container logs.
+// stdout-based protocol and stays readable in CloudWatch.
 
 type Level = "debug" | "info" | "warn" | "error";
 

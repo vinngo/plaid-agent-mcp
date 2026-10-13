@@ -1,0 +1,51 @@
+[
+  {
+    "name": "snapshot_status",
+    "description": "Check how fresh the stored snapshots are before deciding whether to pull. Returns, for holdings and transactions, the S3 key, when it was pulled and its age in hours, plus each account's as_of (when Plaid itself last refreshed that brokerage). `stale` compares pull age to the threshold; a fresh pull cannot make as_of newer than Plaid's own refresh. Cheap: reads only latest.json, never calls Plaid.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "list_accounts",
+    "description": "List linked brokerage accounts with broker (fidelity, robinhood), account_type (brokerage, ira, roth, 401k), name, last-four mask and last-known balance. Small inline JSON; calls Plaid.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "portfolio_summary",
+    "description": "Total value, cash, allocation by broker / security type / account, top 5 holdings, and unrealized gain computed only over positions with a known cost basis (positions without one are listed, not guessed). Small inline JSON with as_of per broker. Use this for 'how much do I have / how is it split' questions that need no row-level math. Calls Plaid; does not write a snapshot.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "pull_holdings",
+    "description": "Pull current holdings for every linked account from Plaid and write them as holdings.csv (plus accounts.json) to a new dated snapshot. Returns a pointer, not the rows: load the s3_key into the sandbox to analyze it. Columns: as_of, broker, account_id, account_type, ticker, security_name, security_type, quantity, price, market_value, cost_basis. cost_basis is empty when the broker doesn't report it; flag those rows rather than computing gains on them.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "pull_transactions",
+    "description": "Pull investment transactions in a date range from Plaid and write them as transactions.csv to a new dated snapshot. Returns a pointer, not the rows. Defaults to the last 90 days; Plaid keeps up to 24 months. Columns: date, broker, account_id, ticker, type, quantity, price, amount, fees, subtype, description. type is one of buy, sell, dividend, interest, fee, transfer, other. amount uses Plaid's sign: positive = cash out of the account (buys, fees), negative = cash in (sells, dividends, deposits).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "start_date": {
+          "type": "string",
+          "description": "Start date, YYYY-MM-DD. Default: 90 days ago."
+        },
+        "end_date": {
+          "type": "string",
+          "description": "End date, YYYY-MM-DD. Default: today."
+        }
+      }
+    }
+  }
+]
