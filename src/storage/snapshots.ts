@@ -49,9 +49,10 @@ export class LocalSnapshotStore implements SnapshotStore {
 }
 
 export class S3SnapshotStore implements SnapshotStore {
-  private client = new S3Client({});
-
-  constructor(private bucket = config.snapshots.bucket) {
+  constructor(
+    private bucket = config.snapshots.bucket,
+    private client: S3Client = new S3Client({}),
+  ) {
     if (!bucket) throw new Error("SNAPSHOT_BUCKET must be set when SNAPSHOT_STORE=s3.");
   }
 
