@@ -3,12 +3,17 @@
  *
  *   npm run link:sandbox            # uses default sandbox institution
  *   npm run link:sandbox ins_XXXXX  # link a specific sandbox institution
+ *   npm run link:sandbox -- --force # link again even if already linked
+ *
+ * Refuses to link an institution that is already in the token store: a
+ * duplicate Item doubles every account and holding and uses up an Item slot.
  *
  * Requires PLAID_CLIENT_ID / PLAID_SECRET with PLAID_ENV=sandbox in your .env.
  */
 import { config } from "../src/config.js";
-import { createSandboxItem } from "../src/plaid/link.js";
+import { createSandboxItem, findExistingItem, resolveInstitutionName } from "../src/plaid/link.js";
 import { extractPlaidError } from "../src/providers/plaid.js";
+import { getTokenStore } from "../src/storage/tokens.js";
 
 // First Platypus Bank — the default Plaid sandbox institution (supports investments).
 const DEFAULT_INSTITUTION = "ins_109508";
@@ -23,11 +28,23 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const institutionId = process.argv[2] ?? DEFAULT_INSTITUTION;
-  console.log(`Creating sandbox item for ${institutionId} (products: ${config.plaid.products.join(", ")})…`);
+  const args = process.argv.slice(2);
+  const force = args.includes("--force");
+  const institutionId = args.find((a) => !a.startsWith("--")) ?? DEFAULT_INSTITUTION;
 
   try {
-    const item = await createSandboxItem(institutionId);
+    const institutionName = await resolveInstitutionName(institutionId);
+    const existing = findExistingItem(await getTokenStore().list(), institutionId, institutionName);
+    if (existing && !force) {
+      console.error(
+        `✗ "${existing.institution}" is already linked (item ${existing.itemId}). ` +
+          "Linking it again would duplicate every account. Re-run with --force to link anyway.",
+      );
+      process.exit(1);
+    }
+
+    console.log(`Creating sandbox item for ${institutionId} (products: ${config.plaid.products.join(", ")})…`);
+    const item = await createSandboxItem(institutionId, institutionName);
     console.log(`✓ Linked "${item.institution}" (item ${item.itemId}).`);
     console.log("  Try it: npm run smoke");
   } catch (err) {

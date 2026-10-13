@@ -19,16 +19,34 @@ export async function resolveInstitutionName(institutionId: string | null | unde
   }
 }
 
-export async function exchangePublicToken(publicToken: string, institutionName?: string): Promise<StoredItem> {
+/**
+ * The already-linked Item for an institution, if any. Matches on institutionId;
+ * items stored before the id was recorded fall back to matching by name.
+ */
+export function findExistingItem(
+  items: StoredItem[],
+  institutionId: string,
+  institutionName: string,
+): StoredItem | undefined {
+  return (
+    items.find((i) => i.institutionId === institutionId) ??
+    items.find((i) => !i.institutionId && i.institution === institutionName)
+  );
+}
+
+export async function exchangePublicToken(
+  publicToken: string,
+  institutionName?: string,
+  institutionId?: string,
+): Promise<StoredItem> {
   const exchange = await getPlaidClient().itemPublicTokenExchange({ public_token: publicToken });
   const accessToken = exchange.data.access_token;
   const itemId = exchange.data.item_id;
 
   let institution = institutionName ?? "";
-  let institutionId: string | undefined;
   if (!institution) {
     const itemRes = await getPlaidClient().itemGet({ access_token: accessToken });
-    institutionId = itemRes.data.item.institution_id ?? undefined;
+    institutionId = itemRes.data.item.institution_id ?? institutionId;
     institution = await resolveInstitutionName(institutionId);
   }
 
@@ -44,11 +62,11 @@ export async function exchangePublicToken(publicToken: string, institutionName?:
 }
 
 /** Sandbox-only: create a linked item without going through Link in a browser. */
-export async function createSandboxItem(institutionId: string): Promise<StoredItem> {
+export async function createSandboxItem(institutionId: string, institutionName?: string): Promise<StoredItem> {
   const pub = await getPlaidClient().sandboxPublicTokenCreate({
     institution_id: institutionId,
     initial_products: toProducts(config.plaid.products),
   });
-  const institution = await resolveInstitutionName(institutionId);
-  return exchangePublicToken(pub.data.public_token, institution);
+  const institution = institutionName ?? (await resolveInstitutionName(institutionId));
+  return exchangePublicToken(pub.data.public_token, institution, institutionId);
 }
