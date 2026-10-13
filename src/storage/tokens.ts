@@ -36,10 +36,12 @@ export interface TokenStore {
 const CACHE_TTL_MS = 5 * 60 * 1000;
 
 export class SecretsManagerTokenStore implements TokenStore {
-  private client = new SecretsManagerClient({});
   private cache: { at: number; items: StoredItem[] } | null = null;
 
-  constructor(private prefix = config.tokens.secretPrefix) {}
+  constructor(
+    private prefix = config.tokens.secretPrefix,
+    private client: SecretsManagerClient = new SecretsManagerClient({}),
+  ) {}
 
   async list(): Promise<StoredItem[]> {
     if (this.cache && Date.now() - this.cache.at < CACHE_TTL_MS) return this.cache.items;
