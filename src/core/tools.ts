@@ -4,7 +4,7 @@
 // scripts/gateway-schema.ts emits the Gateway target schema from this list.
 
 import { z } from "zod";
-import type { PortfolioProvider } from "../providers/types.js";
+import type { Account, PortfolioProvider } from "../providers/types.js";
 import { PlaidRequestError } from "../providers/plaid.js";
 import type { SnapshotStore } from "../storage/snapshots.js";
 import {
@@ -58,10 +58,20 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * Only investment accounts reach the agent. A linked login can also carry
+ * checking, credit and loan accounts whose balances would read as portfolio
+ * value. Depository accounts (e.g. a Fidelity cash management account) are
+ * dropped too; money-market sweeps inside a brokerage still appear as holdings.
+ */
+function investmentAccounts(accounts: Account[]): Account[] {
+  return accounts.filter((a) => a.type === "investment");
+}
+
 async function holdingsAndMeta(deps: ToolDeps) {
   const result = await deps.provider.getHoldings();
   const pulledAt = deps.now().toISOString();
-  const accounts = toAccountMeta(result.accounts, result.itemsAsOf, pulledAt);
+  const accounts = toAccountMeta(investmentAccounts(result.accounts), result.itemsAsOf, pulledAt);
   const rows = toHoldingRows(result.holdings, accounts, pulledAt);
   return { rows, accounts, pulledAt };
 }
@@ -124,10 +134,12 @@ export const TOOLS: ToolDef[] = [
     name: "list_accounts",
     description:
       "List linked brokerage accounts with broker (fidelity, robinhood), account_type (brokerage, ira, roth, " +
-      "401k), name, last-four mask and last-known balance. Small inline JSON; calls Plaid.",
+      "401k), name, last-four mask and last-known balance. Investment accounts only: checking, credit, loan and " +
+      "other depository accounts (including a Fidelity cash management account) are excluded; money-market " +
+      "sweeps inside a brokerage account appear as holdings. Small inline JSON; calls Plaid.",
     inputSchema: { type: "object", properties: {} },
     async run(_args, deps) {
-      const accounts = toAccountMeta(await deps.provider.listAccounts(), {}, deps.now().toISOString()).map(
+      const accounts = toAccountMeta(investmentAccounts(await deps.provider.listAccounts()), {}, deps.now().toISOString()).map(
         ({ as_of: _asOf, ...rest }) => rest,
       );
       requireLinked(accounts, "accounts");

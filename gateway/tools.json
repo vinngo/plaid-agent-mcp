@@ -9,7 +9,7 @@
   },
   {
     "name": "list_accounts",
-    "description": "List linked brokerage accounts with broker (fidelity, robinhood), account_type (brokerage, ira, roth, 401k), name, last-four mask and last-known balance. Small inline JSON; calls Plaid.",
+    "description": "List linked brokerage accounts with broker (fidelity, robinhood), account_type (brokerage, ira, roth, 401k), name, last-four mask and last-known balance. Investment accounts only: checking, credit, loan and other depository accounts (including a Fidelity cash management account) are excluded; money-market sweeps inside a brokerage account appear as holdings. Small inline JSON; calls Plaid.",
     "inputSchema": {
       "type": "object",
       "properties": {}

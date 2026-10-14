@@ -7,6 +7,7 @@ import type { Context } from "aws-lambda";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { MockProvider } from "../src/providers/mock.js";
+import type { Account, HoldingsResult } from "../src/providers/types.js";
 import { LocalSnapshotStore } from "../src/storage/snapshots.js";
 import { HOLDING_COLUMNS, TRANSACTION_COLUMNS, toCsv, transactionTypeOf } from "../src/core/canonical.js";
 import { TOOLS, runTool, type ToolDeps } from "../src/core/tools.js";
@@ -103,6 +104,49 @@ test("snapshot_status flips to stale after the threshold", async () => {
   assert.equal(s.holdings.stale, true);
   assert.equal(s.holdings.age_hours, 13);
   assert.equal(s.accounts.length, 3);
+});
+
+/** MockProvider plus a checking account and a student loan on the Fidelity login, as Plaid Sandbox returns. */
+class MixedAccountsProvider extends MockProvider {
+  static readonly EXTRA: Account[] = [
+    { itemId: "mock-item-fidelity", accountId: "mock-acc-checking", institution: "Fidelity", name: "Cash Management", mask: "4444", type: "depository", subtype: "checking", currentBalance: 1200, currency: "USD" },
+    { itemId: "mock-item-fidelity", accountId: "mock-acc-loan", institution: "Fidelity", name: "Student Loan", mask: "5555", type: "loan", subtype: "student", currentBalance: 65000, currency: "USD" },
+  ];
+
+  override async listAccounts(): Promise<Account[]> {
+    return [...(await super.listAccounts()), ...MixedAccountsProvider.EXTRA];
+  }
+
+  override async getHoldings(): Promise<HoldingsResult> {
+    const result = await super.getHoldings();
+    return { ...result, accounts: [...result.accounts, ...MixedAccountsProvider.EXTRA] };
+  }
+}
+
+test("only investment accounts are exposed; holdings are unchanged", async () => {
+  const plain = setup();
+  const { dir, deps } = setup();
+  deps.provider = new MixedAccountsProvider();
+  const extraIds = MixedAccountsProvider.EXTRA.map((a) => a.accountId);
+  const ids = (accounts: { account_id: string }[]) => accounts.map((a) => a.account_id);
+
+  const listed = await call("list_accounts", {}, deps);
+  assert.equal(listed.accounts.length, 3);
+  assert.ok(!ids(listed.accounts).some((id) => extraIds.includes(id)));
+
+  const res = await call("pull_holdings", {}, deps);
+  const accounts = JSON.parse(readFileSync(path.join(dir, res.accounts_key), "utf8"));
+  assert.equal(accounts.length, 3);
+  assert.ok(!ids(accounts).some((id) => extraIds.includes(id)));
+
+  const status = await call("snapshot_status", {}, deps);
+  assert.equal(status.accounts.length, 3);
+  assert.ok(!ids(status.accounts).some((id) => extraIds.includes(id)));
+
+  const baseline = await call("pull_holdings", {}, plain.deps);
+  assert.equal(res.row_count, baseline.row_count);
+  assert.equal(res.total_value, baseline.total_value);
+  assert.equal(status.holdings.total_value, baseline.total_value);
 });
 
 test("pull_transactions defaults to 90 days and maps types", async () => {
