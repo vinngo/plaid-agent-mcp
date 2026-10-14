@@ -6,8 +6,8 @@ import { getPlaidClient, toCountryCodes, toProducts } from "../providers/plaid.j
 import { config } from "../config.js";
 import { getTokenStore, type StoredItem } from "../storage/tokens.js";
 
-export async function resolveInstitutionName(institutionId: string | null | undefined): Promise<string> {
-  if (!institutionId) return "Unknown institution";
+/** The institution's display name, or null when Plaid can't be reached or doesn't know the id. */
+export async function lookupInstitutionName(institutionId: string): Promise<string | null> {
   try {
     const res = await getPlaidClient().institutionsGetById({
       institution_id: institutionId,
@@ -15,8 +15,13 @@ export async function resolveInstitutionName(institutionId: string | null | unde
     });
     return res.data.institution.name;
   } catch {
-    return institutionId;
+    return null;
   }
+}
+
+export async function resolveInstitutionName(institutionId: string | null | undefined): Promise<string> {
+  if (!institutionId) return "Unknown institution";
+  return (await lookupInstitutionName(institutionId)) ?? institutionId;
 }
 
 /**
@@ -32,6 +37,32 @@ export function findExistingItem(
     items.find((i) => i.institutionId === institutionId) ??
     items.find((i) => !i.institutionId && i.institution === institutionName)
   );
+}
+
+export type ExistingItemCheck =
+  | { status: "linked"; item: StoredItem }
+  /** The name lookup failed, so items stored without an id can't be ruled out. */
+  | { status: "unverified"; legacyItems: StoredItem[] }
+  | { status: "clear" };
+
+/**
+ * Whether linking this institution would duplicate an Item. Fails closed: with
+ * no name (lookup failed) and legacy items present, the answer is "unverified",
+ * never "clear".
+ */
+export function checkExistingItem(
+  items: StoredItem[],
+  institutionId: string,
+  institutionName: string | null,
+): ExistingItemCheck {
+  const byId = items.find((i) => i.institutionId === institutionId);
+  if (byId) return { status: "linked", item: byId };
+  if (institutionName === null) {
+    const legacyItems = items.filter((i) => !i.institutionId);
+    return legacyItems.length > 0 ? { status: "unverified", legacyItems } : { status: "clear" };
+  }
+  const existing = findExistingItem(items, institutionId, institutionName);
+  return existing ? { status: "linked", item: existing } : { status: "clear" };
 }
 
 export async function exchangePublicToken(
