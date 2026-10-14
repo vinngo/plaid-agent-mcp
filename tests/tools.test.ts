@@ -8,7 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { MockProvider } from "../src/providers/mock.js";
 import { LocalSnapshotStore } from "../src/storage/snapshots.js";
-import { HOLDING_COLUMNS, TRANSACTION_COLUMNS, toCsv, transactionTypeOf } from "../src/core/canonical.js";
+import { HOLDING_COLUMNS, TRANSACTION_COLUMNS, securityTypeOf, toCsv, transactionTypeOf } from "../src/core/canonical.js";
 import { TOOLS, runTool, type ToolDeps } from "../src/core/tools.js";
 import { buildMcpServer } from "../src/adapters/mcp.js";
 import { handler, toolNameFrom } from "../src/adapters/lambda.js";
@@ -156,6 +156,13 @@ test("transaction type mapping covers Plaid subtypes", () => {
   assert.equal(transactionTypeOf("cash", "withdrawal"), "transfer");
   assert.equal(transactionTypeOf("cash", "account fee"), "fee");
   assert.equal(transactionTypeOf("cancel", "cancel"), "other");
+});
+
+test("security type mapping: crypto before the cash flag, money market as cash", () => {
+  assert.equal(securityTypeOf("cryptocurrency", true), "crypto");
+  assert.equal(securityTypeOf("mutual fund", true), "cash");
+  assert.equal(securityTypeOf("equity", false), "equity");
+  assert.equal(securityTypeOf(undefined, true), "cash");
 });
 
 test("CSV quoting escapes quotes and newlines", () => {

@@ -66,9 +66,11 @@ export function accountTypeOf(subtype: string | undefined): string {
 }
 
 export function securityTypeOf(type: string | undefined, isCash: boolean | undefined): string {
-  if (isCash) return "cash";
   const s = (type ?? "").toLowerCase();
+  // Plaid flags crypto as a cash equivalent, so check the type first. The cash
+  // flag still classifies money-market funds (type "mutual fund") as cash.
   if (s === "cryptocurrency") return "crypto";
+  if (isCash) return "cash";
   return s || "other";
 }
 
