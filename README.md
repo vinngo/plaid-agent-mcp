@@ -26,7 +26,7 @@ in AWS the same code runs as one Lambda behind AgentCore Gateway, and
 | Tool | Returns |
 |---|---|
 | `snapshot_status` | Age and key of the latest holdings/transactions snapshots, per-account Plaid `as_of`, stale flag. Never calls Plaid. |
-| `list_accounts` | Accounts with broker, type, mask, balance (inline JSON) |
+| `list_accounts` | Investment accounts with broker, type, mask, balance (inline JSON) |
 | `portfolio_summary` | Total value, cash, allocation, top holdings, unrealized gain over positions with cost basis (inline JSON) |
 | `pull_holdings` | Writes `holdings.csv` + `accounts.json`; returns `{s3_key, as_of, row_count, total_value}` |
 | `pull_transactions(start_date?, end_date?)` | Writes `transactions.csv` (default last 90 days); returns `{s3_key, as_of, row_count}` |
@@ -39,6 +39,12 @@ snapshots/<YYYY-MM-DDTHHMM>/transactions.csv
 snapshots/<YYYY-MM-DDTHHMM>/accounts.json
 latest.json        newest holdings and transactions pointers
 ```
+
+Only Plaid accounts of type `investment` appear in `list_accounts`,
+`accounts.json` and `snapshot_status`. Checking, credit and loan accounts on the
+same login are dropped, and so are depository accounts such as a Fidelity cash
+management account. Money-market sweeps inside a brokerage account still appear
+as holdings.
 
 `holdings.csv`: `as_of, broker, account_id, account_type, ticker, security_name,
 security_type, quantity, price, market_value, cost_basis` (empty when unknown).
