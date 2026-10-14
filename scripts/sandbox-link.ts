@@ -11,7 +11,7 @@
  * Requires PLAID_CLIENT_ID / PLAID_SECRET with PLAID_ENV=sandbox in your .env.
  */
 import { config } from "../src/config.js";
-import { createSandboxItem, findExistingItem, resolveInstitutionName } from "../src/plaid/link.js";
+import { checkExistingItem, createSandboxItem, lookupInstitutionName } from "../src/plaid/link.js";
 import { extractPlaidError } from "../src/providers/plaid.js";
 import { getTokenStore } from "../src/storage/tokens.js";
 
@@ -33,18 +33,26 @@ async function main(): Promise<void> {
   const institutionId = args.find((a) => !a.startsWith("--")) ?? DEFAULT_INSTITUTION;
 
   try {
-    const institutionName = await resolveInstitutionName(institutionId);
-    const existing = findExistingItem(await getTokenStore().list(), institutionId, institutionName);
-    if (existing && !force) {
+    const institutionName = await lookupInstitutionName(institutionId);
+    const check = checkExistingItem(await getTokenStore().list(), institutionId, institutionName);
+    if (check.status === "linked" && !force) {
       console.error(
-        `✗ "${existing.institution}" is already linked (item ${existing.itemId}). ` +
+        `✗ "${check.item.institution}" is already linked (item ${check.item.itemId}). ` +
           "Linking it again would duplicate every account. Re-run with --force to link anyway.",
+      );
+      process.exit(1);
+    }
+    if (check.status === "unverified" && !force) {
+      const legacy = check.legacyItems.map((i) => `"${i.institution}" (item ${i.itemId})`).join(", ");
+      console.error(
+        `✗ Couldn't look up the name of ${institutionId} from Plaid, so it can't be checked against items ` +
+          `stored without an institution id: ${legacy}. Re-run when Plaid is reachable, or with --force to link anyway.`,
       );
       process.exit(1);
     }
 
     console.log(`Creating sandbox item for ${institutionId} (products: ${config.plaid.products.join(", ")})…`);
-    const item = await createSandboxItem(institutionId, institutionName);
+    const item = await createSandboxItem(institutionId, institutionName ?? undefined);
     console.log(`✓ Linked "${item.institution}" (item ${item.itemId}).`);
     console.log("  Try it: npm run smoke");
   } catch (err) {
