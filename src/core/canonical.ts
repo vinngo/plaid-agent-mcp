@@ -89,7 +89,26 @@ export function transactionTypeOf(type: string, subtype: string): string {
   return "other";
 }
 
-export function toAccountMeta(accounts: Account[], itemsAsOf: Record<string, string>, fallbackAsOf: string): AccountMeta[] {
+/**
+ * The oldest of the given refresh times, or null if none is known. Every tool
+ * reports this as `data_as_of`: an answer built from several accounts is only
+ * as fresh as the stalest one.
+ */
+export function oldestAsOf(values: Iterable<string | null | undefined>): string | null {
+  let oldest: string | null = null;
+  for (const v of values) {
+    if (!v || Number.isNaN(Date.parse(v))) continue;
+    if (oldest === null || Date.parse(v) < Date.parse(oldest)) oldest = v;
+  }
+  return oldest;
+}
+
+/**
+ * `as_of` is only ever Plaid's own last refresh of the item, or null when Plaid
+ * didn't report one. It never falls back to the pull time: a fresh pull of
+ * day-old data must not read as fresh.
+ */
+export function toAccountMeta(accounts: Account[], itemsAsOf: Record<string, string>): AccountMeta[] {
   return accounts.map((a) => ({
     account_id: a.accountId,
     broker: brokerOf(a.institution),
@@ -98,16 +117,16 @@ export function toAccountMeta(accounts: Account[], itemsAsOf: Record<string, str
     mask: a.mask ?? null,
     balance: a.currentBalance ?? null,
     currency: a.currency ?? null,
-    as_of: itemsAsOf[a.itemId] ?? fallbackAsOf,
+    as_of: itemsAsOf[a.itemId] ?? null,
   }));
 }
 
-export function toHoldingRows(holdings: Holding[], accounts: AccountMeta[], fallbackAsOf: string): HoldingRow[] {
+export function toHoldingRows(holdings: Holding[], accounts: AccountMeta[]): HoldingRow[] {
   const byId = new Map(accounts.map((a) => [a.account_id, a]));
   return holdings.map((h) => {
     const acct = byId.get(h.accountId);
     return {
-      as_of: acct?.as_of ?? fallbackAsOf,
+      as_of: acct?.as_of ?? null,
       broker: acct?.broker ?? brokerOf(h.institution),
       account_id: h.accountId,
       account_type: acct?.account_type ?? "unknown",

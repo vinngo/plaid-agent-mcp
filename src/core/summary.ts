@@ -5,7 +5,7 @@
 // the rest are listed by name. (Upstream summed value over all positions but
 // cost over only some, which counted uncovered positions as pure gain.)
 
-import type { AccountMeta, HoldingRow } from "./canonical.js";
+import { oldestAsOf, type AccountMeta, type HoldingRow } from "./canonical.js";
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const pct = (part: number, whole: number) => (whole > 0 ? r2((part / whole) * 100) : 0);
@@ -25,11 +25,11 @@ export function summarize(rows: HoldingRow[], accounts: AccountMeta[]) {
   const coveredValue = withBasis.reduce((s, r) => s + Number(r.market_value), 0);
   const coveredCost = withBasis.reduce((s, r) => s + Number(r.cost_basis), 0);
 
+  // The oldest refresh per broker: that's how stale its data can be.
   const asOfByBroker: Record<string, string> = {};
-  for (const a of accounts) {
-    if (!a.as_of) continue;
-    // Report the oldest refresh per broker: that's how stale its data can be.
-    if (!asOfByBroker[a.broker] || a.as_of < asOfByBroker[a.broker]) asOfByBroker[a.broker] = a.as_of;
+  for (const broker of new Set(accounts.map((a) => a.broker))) {
+    const oldest = oldestAsOf(accounts.filter((a) => a.broker === broker).map((a) => a.as_of));
+    if (oldest) asOfByBroker[broker] = oldest;
   }
 
   const acctById = new Map(accounts.map((a) => [a.account_id, a]));
@@ -70,6 +70,7 @@ export function summarize(rows: HoldingRow[], accounts: AccountMeta[]) {
 
   return {
     summary: parts.join(" "),
+    data_as_of: oldestAsOf(Object.values(asOfByBroker)),
     as_of_by_broker: asOfByBroker,
     currency: currencies.length === 1 ? currencies[0] : currencies,
     total_value: r2(total),

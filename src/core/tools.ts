@@ -10,6 +10,7 @@ import type { SnapshotStore } from "../storage/snapshots.js";
 import {
   HOLDING_COLUMNS,
   TRANSACTION_COLUMNS,
+  oldestAsOf,
   toAccountMeta,
   toCsv,
   toHoldingRows,
@@ -71,8 +72,8 @@ function investmentAccounts(accounts: Account[]): Account[] {
 async function holdingsAndMeta(deps: ToolDeps) {
   const result = await deps.provider.getHoldings();
   const pulledAt = deps.now().toISOString();
-  const accounts = toAccountMeta(investmentAccounts(result.accounts), result.itemsAsOf, pulledAt);
-  const rows = toHoldingRows(result.holdings, accounts, pulledAt);
+  const accounts = toAccountMeta(investmentAccounts(result.accounts), result.itemsAsOf);
+  const rows = toHoldingRows(result.holdings, accounts);
   return { rows, accounts, pulledAt };
 }
 
@@ -82,14 +83,18 @@ function requireLinked<T>(rows: T[], what: string): void {
   }
 }
 
+// Every successful result carries `data_as_of`: the oldest time Plaid itself last
+// refreshed any account the result covers (ISO UTC), or null when unknown. It is
+// never a pull time; those are reported separately as `pulled_at`.
 export const TOOLS: ToolDef[] = [
   {
     name: "snapshot_status",
     description:
       "Check how fresh the stored snapshots are before deciding whether to pull. Returns, for holdings and " +
       "transactions, the S3 key, when it was pulled and its age in hours, plus each account's as_of (when Plaid " +
-      "itself last refreshed that brokerage). `stale` compares pull age to the threshold; a fresh pull cannot " +
-      "make as_of newer than Plaid's own refresh. Cheap: reads only latest.json, never calls Plaid.",
+      "itself last refreshed that brokerage, or null if unknown). data_as_of is the oldest of those. `stale` " +
+      "compares pull age to the threshold; a fresh pull cannot make data newer than Plaid's own refresh. Cheap: " +
+      "reads only latest.json, never calls Plaid.",
     inputSchema: { type: "object", properties: {} },
     async run(_args, deps) {
       const latest = await readLatest(deps.snapshots);
@@ -126,7 +131,14 @@ export const TOOLS: ToolDef[] = [
         ? "No holdings snapshot yet. Call pull_holdings."
         : `Holdings pulled ${holdings!.age_hours}h ago (${holdings!.stale ? "stale" : "fresh"}, threshold ${deps.staleAfterHours}h).` +
           (t ? ` Transactions ${t.start_date}..${t.end_date} pulled ${transactions!.age_hours}h ago.` : " No transactions snapshot yet.");
-      return { summary, stale_after_hours: deps.staleAfterHours, holdings: holdings ?? null, transactions: transactions ?? null, accounts };
+      return {
+        summary,
+        data_as_of: oldestAsOf(accounts.map((a) => a.as_of)),
+        stale_after_hours: deps.staleAfterHours,
+        holdings: holdings ?? null,
+        transactions: transactions ?? null,
+        accounts,
+      };
     },
   },
 
@@ -139,11 +151,16 @@ export const TOOLS: ToolDef[] = [
       "sweeps inside a brokerage account appear as holdings. Small inline JSON; calls Plaid.",
     inputSchema: { type: "object", properties: {} },
     async run(_args, deps) {
-      const accounts = toAccountMeta(investmentAccounts(await deps.provider.listAccounts()), {}, deps.now().toISOString()).map(
+      const accounts = toAccountMeta(investmentAccounts(await deps.provider.listAccounts()), {}).map(
         ({ as_of: _asOf, ...rest }) => rest,
       );
       requireLinked(accounts, "accounts");
-      return { summary: `${accounts.length} account(s) across ${new Set(accounts.map((a) => a.broker)).size} broker(s).`, accounts };
+      return {
+        summary: `${accounts.length} account(s) across ${new Set(accounts.map((a) => a.broker)).size} broker(s).`,
+        // Plaid's accounts call carries no refresh time for these balances.
+        data_as_of: null,
+        accounts,
+      };
     },
   },
 
@@ -152,7 +169,7 @@ export const TOOLS: ToolDef[] = [
     description:
       "Total value, cash, allocation by broker / security type / account, top 5 holdings, and unrealized gain " +
       "computed only over positions with a known cost basis (positions without one are listed, not guessed). " +
-      "Small inline JSON with as_of per broker. Use this for 'how much do I have / how is it split' questions " +
+      "Small inline JSON with as_of per broker and data_as_of (the oldest). Use this for 'how much do I have / how is it split' questions " +
       "that need no row-level math. Calls Plaid; does not write a snapshot.",
     inputSchema: { type: "object", properties: {} },
     async run(_args, deps) {
@@ -184,12 +201,10 @@ export const TOOLS: ToolDef[] = [
         holdings: { key, accounts_key: accountsKey, pulled_at: pulledAt, row_count: rows.length, total_value: totalValue, accounts },
       });
 
-      const asOfValues = accounts.map((a) => a.as_of).filter((v): v is string => Boolean(v)).sort();
       return {
         s3_key: key,
         accounts_key: accountsKey,
-        // The oldest per-account refresh: the whole snapshot is at least this fresh.
-        as_of: asOfValues[0] ?? pulledAt,
+        data_as_of: oldestAsOf(accounts.map((a) => a.as_of)),
         pulled_at: pulledAt,
         row_count: rows.length,
         total_value: totalValue,
@@ -230,7 +245,15 @@ export const TOOLS: ToolDef[] = [
       await updateLatest(deps.snapshots, {
         transactions: { key, pulled_at: pulledAt, start_date: startDate, end_date: endDate, row_count: rows.length },
       });
-      return { s3_key: key, as_of: pulledAt, start_date: startDate, end_date: endDate, row_count: rows.length };
+      return {
+        s3_key: key,
+        // Plaid reports no refresh time with investment transactions.
+        data_as_of: null,
+        pulled_at: pulledAt,
+        start_date: startDate,
+        end_date: endDate,
+        row_count: rows.length,
+      };
     },
   },
 ];

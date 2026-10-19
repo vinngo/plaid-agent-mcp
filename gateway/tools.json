@@ -1,7 +1,7 @@
 [
   {
     "name": "snapshot_status",
-    "description": "Check how fresh the stored snapshots are before deciding whether to pull. Returns, for holdings and transactions, the S3 key, when it was pulled and its age in hours, plus each account's as_of (when Plaid itself last refreshed that brokerage). `stale` compares pull age to the threshold; a fresh pull cannot make as_of newer than Plaid's own refresh. Cheap: reads only latest.json, never calls Plaid.",
+    "description": "Check how fresh the stored snapshots are before deciding whether to pull. Returns, for holdings and transactions, the S3 key, when it was pulled and its age in hours, plus each account's as_of (when Plaid itself last refreshed that brokerage, or null if unknown). data_as_of is the oldest of those. `stale` compares pull age to the threshold; a fresh pull cannot make data newer than Plaid's own refresh. Cheap: reads only latest.json, never calls Plaid.",
     "inputSchema": {
       "type": "object",
       "properties": {}
@@ -17,7 +17,7 @@
   },
   {
     "name": "portfolio_summary",
-    "description": "Total value, cash, allocation by broker / security type / account, top 5 holdings, and unrealized gain computed only over positions with a known cost basis (positions without one are listed, not guessed). Small inline JSON with as_of per broker. Use this for 'how much do I have / how is it split' questions that need no row-level math. Calls Plaid; does not write a snapshot.",
+    "description": "Total value, cash, allocation by broker / security type / account, top 5 holdings, and unrealized gain computed only over positions with a known cost basis (positions without one are listed, not guessed). Small inline JSON with as_of per broker and data_as_of (the oldest). Use this for 'how much do I have / how is it split' questions that need no row-level math. Calls Plaid; does not write a snapshot.",
     "inputSchema": {
       "type": "object",
       "properties": {}

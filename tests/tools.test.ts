@@ -91,8 +91,57 @@ test("pull_holdings writes canonical CSV, accounts.json and latest.json", async 
 
   const latest = JSON.parse(readFileSync(path.join(dir, "latest.json"), "utf8"));
   assert.equal(latest.holdings.key, res.s3_key);
-  // as_of is the oldest per-account Plaid refresh (Fidelity, 9h before mock "now").
-  assert.ok(res.as_of < res.pulled_at);
+  // data_as_of is the oldest per-account Plaid refresh: Fidelity, which the mock
+  // stamps 9h before the wall clock (not the test's fixed "now").
+  assert.equal(res.data_as_of, accounts.map((a: any) => a.as_of).sort()[0]);
+  const ageHours = (Date.now() - Date.parse(res.data_as_of)) / 3600_000;
+  assert.ok(ageHours > 8.9 && ageHours < 9.1, `expected ~9h old, got ${ageHours}h`);
+});
+
+test("every tool reports data_as_of, the oldest Plaid refresh", async () => {
+  const { deps } = setup();
+  const before = await call("snapshot_status", {}, deps);
+  assert.equal(before.data_as_of, null, "nothing pulled yet");
+
+  const pulled = await call("pull_holdings", {}, deps);
+  const summary = await call("portfolio_summary", {}, deps);
+  const status = await call("snapshot_status", {}, deps);
+  const accounts = await call("list_accounts", {}, deps);
+  const txns = await call("pull_transactions", {}, deps);
+
+  const fidelity = summary.as_of_by_broker.fidelity;
+  assert.ok(Date.parse(fidelity) < Date.parse(summary.as_of_by_broker.robinhood), "mock: Fidelity is the staler broker");
+  assert.equal(summary.data_as_of, fidelity);
+  // The mock stamps refresh times from the wall clock on each Plaid call, so
+  // separate calls can differ by a few milliseconds.
+  const near = (a: string, b: string) => Math.abs(Date.parse(a) - Date.parse(b)) < 1000;
+  assert.ok(near(pulled.data_as_of, fidelity));
+  assert.ok(near(status.data_as_of, fidelity));
+  assert.equal(status.data_as_of, pulled.data_as_of, "status reads the pulled snapshot");
+  assert.equal(accounts.data_as_of, null, "balances carry no refresh time");
+  assert.equal(txns.data_as_of, null, "transactions carry no refresh time");
+  assert.equal(txns.as_of, undefined, "the pull time is pulled_at, not as_of");
+  assert.ok(txns.pulled_at);
+});
+
+/** MockProvider whose holdings come back without any Plaid refresh time. */
+class NoRefreshTimeProvider extends MockProvider {
+  override async getHoldings(): Promise<HoldingsResult> {
+    return { ...(await super.getHoldings()), itemsAsOf: {} };
+  }
+}
+
+test("a pull time is never reported as a refresh time", async () => {
+  const { dir, deps } = setup();
+  deps.provider = new NoRefreshTimeProvider();
+  const pulled = await call("pull_holdings", {}, deps);
+  assert.equal(pulled.data_as_of, null);
+  assert.equal((await call("portfolio_summary", {}, deps)).data_as_of, null);
+  assert.equal((await call("snapshot_status", {}, deps)).data_as_of, null);
+
+  const rows = parseCsv(readFileSync(path.join(dir, pulled.s3_key), "utf8"));
+  const asOf = HOLDING_COLUMNS.indexOf("as_of");
+  assert.ok(rows.slice(1).every((r) => r[asOf] === ""), "CSV as_of stays empty instead of the pull time");
 });
 
 test("snapshot_status flips to stale after the threshold", async () => {
