@@ -8,6 +8,7 @@ import {
   PutSecretValueCommand,
   ResourceExistsException,
   SecretsManagerClient,
+  TagResourceCommand,
 } from "@aws-sdk/client-secrets-manager";
 import { config } from "../config.js";
 import { log } from "../logger.js";
@@ -32,8 +33,13 @@ export interface TokenStore {
 // Per-item secrets let IAM express the spec's split: the MCP Lambda can
 // ListSecrets + GetSecretValue on the prefix, the web app can only
 // CreateSecret, and nothing else can read tokens at all.
+//
+// Secrets carry the institution id as a tag. The web app (flannel) reads it
+// with ListSecrets to refuse linking an institution twice; an untagged secret
+// makes that check fail closed, so every write sets it.
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const INSTITUTION_ID_TAG = "institution-id";
 
 export class SecretsManagerTokenStore implements TokenStore {
   private cache: { at: number; items: StoredItem[] } | null = null;
@@ -74,11 +80,14 @@ export class SecretsManagerTokenStore implements TokenStore {
   async upsert(item: StoredItem): Promise<void> {
     const name = `${this.prefix}${item.itemId}`;
     const body = JSON.stringify(item);
+    const tags = item.institutionId ? [{ Key: INSTITUTION_ID_TAG, Value: item.institutionId }] : undefined;
     try {
-      await this.client.send(new CreateSecretCommand({ Name: name, SecretString: body }));
+      await this.client.send(new CreateSecretCommand({ Name: name, SecretString: body, ...(tags && { Tags: tags }) }));
     } catch (err) {
       if (!(err instanceof ResourceExistsException)) throw err;
       await this.client.send(new PutSecretValueCommand({ SecretId: name, SecretString: body }));
+      // Backfills the tag on secrets written before it existed.
+      if (tags) await this.client.send(new TagResourceCommand({ SecretId: name, Tags: tags }));
     }
     this.cache = null;
     log.info("Stored linked item", { itemId: item.itemId, institution: item.institution });
