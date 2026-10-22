@@ -83,8 +83,17 @@ Inside Lambda the defaults switch to `TOKEN_STORE=secrets-manager` and
 - `s3:GetObject` / `s3:PutObject` on `snapshots/*` and `latest.json`
 - outbound HTTPS to `*.plaid.com` only (see VPC note below)
 
-Tokens are one secret per linked Item so the web app can be granted
-`CreateSecret` without being able to read existing tokens.
+Tokens are one secret per linked Item so the web app can write tokens without
+being able to read existing ones. Each secret carries an `institution-id` tag,
+which the web app reads to refuse linking an institution twice. Its role needs:
+
+- `secretsmanager:CreateSecret` and `secretsmanager:TagResource` on
+  `plaid-agent/items/*` (tags are set in `CreateSecret`, which requires both)
+- `secretsmanager:ListSecrets` (account-wide; metadata only, no secret values)
+
+`npm run link:sandbox` writes the same tag, so Items linked from either side
+are visible to the duplicate check. Run it with credentials that also allow
+`TagResource`.
 
 ## Changes from upstream
 

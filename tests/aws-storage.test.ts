@@ -13,6 +13,7 @@ import {
   PutSecretValueCommand,
   ResourceExistsException,
   SecretsManagerClient,
+  TagResourceCommand,
 } from "@aws-sdk/client-secrets-manager";
 import { runTool, type ToolDeps } from "../src/core/tools.js";
 import { MockProvider } from "../src/providers/mock.js";
@@ -205,4 +206,42 @@ test("Secrets Manager token store creates new secrets and updates existing ones"
     SecretId: "plaid-agent/items/item-1",
     SecretString: JSON.stringify(item),
   });
+});
+
+test("Secrets Manager token store tags secrets with the institution id", async () => {
+  const item: StoredItem = {
+    itemId: "item-1",
+    institution: "Tartan Bank",
+    institutionId: "ins_109511",
+    linkedAt: "2026-10-13T20:00:00Z",
+    accessToken: "access-sandbox-1",
+  };
+  const tags = [{ Key: "institution-id", Value: "ins_109511" }];
+
+  const created: unknown[] = [];
+  const createClient = {
+    async send(command: unknown) {
+      created.push(command);
+      return {};
+    },
+  } as unknown as SecretsManagerClient;
+  await new SecretsManagerTokenStore("plaid-agent/items/", createClient).upsert(item);
+  assert.equal(created.length, 1);
+  assert.deepEqual((created[0] as CreateSecretCommand).input.Tags, tags);
+
+  const updated: unknown[] = [];
+  const updateClient = {
+    async send(command: unknown) {
+      updated.push(command);
+      if (command instanceof CreateSecretCommand) {
+        throw new ResourceExistsException({ $metadata: {}, message: "already exists" });
+      }
+      return {};
+    },
+  } as unknown as SecretsManagerClient;
+  await new SecretsManagerTokenStore("plaid-agent/items/", updateClient).upsert(item);
+  assert.equal(updated.length, 3);
+  assert.ok(updated[1] instanceof PutSecretValueCommand);
+  assert.ok(updated[2] instanceof TagResourceCommand);
+  assert.deepEqual((updated[2] as TagResourceCommand).input, { SecretId: "plaid-agent/items/item-1", Tags: tags });
 });
